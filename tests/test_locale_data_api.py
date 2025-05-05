@@ -25,7 +25,7 @@ class TestLocaleDataApi(BaseLocaleTest):
         # Check that a translator for a non-existent locale is created but has no data
         translator_non_existent = locales['fr']
         self.assertIsInstance(translator_non_existent, LocaleTranslator)
-        self.assertIsNone(translator_non_existent.some_key)  # Accessing non-existent key in non-strict default
+        self.assertEqual(translator_non_existent.some_key, None)  # Accessing non-existent key in non-strict default
 
     # noinspection PyTypeChecker
     def test_contains(self):

@@ -9,11 +9,7 @@ from typing import (
     Union,
     Callable
 )
-from .wrapped import (
-    LocaleNamespace,
-    LocaleList,
-    PluralWrapper
-)
+from .wrapped import *
 from .utils import *
 import logging
 
@@ -330,7 +326,7 @@ class LocaleTranslator:
                     f"Locale '{self.locale_code}': key/index path '{full_key_path}' not found "
                     f"in translations (including default '{self._default_locale_code}'). None will be returned."
                 )
-                return None  # Explicitly return None when not found
+                return NoneWrapper(self.locale_code, full_key_path)  # return NoneWrapper when not found
 
         # If value is *not* the sentinel, it means _get_value_by_path found *something*
         return self._handle_resolved_value(value, path, found_locale_code)

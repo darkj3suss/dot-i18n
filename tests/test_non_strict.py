@@ -6,7 +6,8 @@ from tests import (
 )
 from src.doti18n.wrapped import (
     LocaleNamespace,
-    LocaleList
+    LocaleList,
+    NoneWrapper
 )
 
 
@@ -19,7 +20,7 @@ class TestNonStrict(BaseLocaleTest):
         locales = self.get_locale_data(strict=False)
         with self.assertLogsFor(LOGGER_LOCALE_TRANSLATOR, level='WARNING') as log_cm:
             value = locales['en'].non_existent_key
-        self.assertIsNone(value)
+        self.assertEqual(value, None)
         log_output = "\n".join(log_cm.output)
         self.assertIn("key/index path 'non_existent_key' not found in translations", log_output)
         locales = None
@@ -29,10 +30,37 @@ class TestNonStrict(BaseLocaleTest):
         locales = self.get_locale_data(strict=False)
         with self.assertLogsFor(LOGGER_LOCALE_TRANSLATOR, level='WARNING') as log_cm:
             value = locales['en'].nested.non_existent_key
-        self.assertIsNone(value)
+        self.assertEqual(value, None)
         log_output = "\n".join(log_cm.output)
         self.assertIn("key/index path 'nested.non_existent_key' not found in translations", log_output)
         locales = None
+
+    def test_none_wrapper_instance(self):
+        self.create_locale_file('en', {})
+        locales = self.get_locale_data(strict=False)
+
+        value1 = locales['en'].missing_key
+        self.assertIsInstance(value1, NoneWrapper)
+        self.assertEqual(value1._path, 'missing_key')
+
+        value2 = locales['en'].missing_key.another_one
+        self.assertIsInstance(value2, NoneWrapper)
+        self.assertEqual(value2._path, 'missing_key.another_one')
+
+        value3 = locales['en'].missing_key.another_one.yet_another
+        self.assertIsInstance(value3, NoneWrapper)
+        self.assertEqual(value3._path, 'missing_key.another_one.yet_another')
+
+    def test_none_wrapper_chain_access(self):
+        self.create_locale_file('en', {})
+        locales = self.get_locale_data(strict=False)
+        with self.assertLogs(LOGGER_LOCALE_TRANSLATOR, level='WARNING') as log_cm:
+            value = locales['en'].missing.key
+
+        self.assertEqual(None, value)
+        log_output = "\n".join(log_cm.output)
+        expected_log_substring = "Locale 'en': key/index path 'missing' not found in translations"
+        self.assertIn(expected_log_substring, log_output)
 
     def test_calling_namespace_raises_typeerror(self):
         # Current __call__ on LocaleNamespace raises TypeError regardless of strict mode.

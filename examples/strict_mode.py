@@ -1,4 +1,5 @@
 # examples/strict_mode.py
+
 import os
 import logging
 from src.doti18n import LocaleData

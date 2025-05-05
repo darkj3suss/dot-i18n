@@ -8,7 +8,7 @@ doti18n provides a convenient way to manage your application's localization stri
 
 Special attention is given to pluralization support using the [Babel](https://pypi.org/project/babel/) library, which is critical for correct localization across different languages. An automatic fallback mechanism to the default locale's value is also implemented if a key or path is missing in the requested locale.
 
-The library offers both a forgiving non-strict mode (returning `None` and logging warnings) and a strict mode (raising exceptions) for handling missing paths.
+The library offers both a forgiving non-strict mode (returning a special wrapper and logging warnings) and a strict mode (raising exceptions) for handling missing paths.
 
 It's designed for ease of use and performance (data is loaded once during initialization and translator objects are cached).
 
@@ -18,7 +18,7 @@ It's designed for ease of use and performance (data is loaded once during initia
 *   Intuitive access to nested data structures (dictionaries and lists) using **dot notation (`.`) for dictionary keys and index notation (`[]`) for list elements**.
 *   Support for **combined access paths** (`data.list[0].nested_key`).
 *   **Strict mode** (`strict=True`) to raise exceptions (`AttributeError`, `IndexError`, `TypeError`) on missing paths or incorrect usage.
-*   **Non-strict mode** (default) to return `None` and log a warning on missing paths.
+*   **Non-strict mode** (default) to return a special `NoneWrapper` object and log a warning on missing paths.
 *   Pluralization support for count-dependent strings (requires `Babel`).
 *   Automatic fallback to the default locale if a key/path is missing in the current locale.
 *   Caching of loaded data and translator objects for efficient access.
@@ -188,7 +188,7 @@ print(isinstance(page_item, dict)) # Output: False
 # page_item() # Raises TypeError
 # pages_list() # Raises TypeError
 
-# You also cannot implicitly convert LocaleList or PluralHandlerWrapper to string
+# You also cannot implicitly convert LocaleList or PluralHandlerWrapper to string in strict mode
 # print("List:", pages_list) # In strict mode, this will raise TypeError. In non-strict, prints the repr.
 # It's best to access specific string values within them: print(pages_list[0].title)
 ```
@@ -256,23 +256,74 @@ The behavior when a full path is not found in either the current locale or the d
 
 **Default Behavior (Non-Strict: `strict=False`)**
 
-Accessing a missing key/path returns `None` and logs a warning.
+Accessing a missing key/path returns a special object `NoneWrapper` instead of raising an exception, and logs a warning. This `NoneWrapper` object allows for continued chained access (e.g., `locales['en'].nonexistent.key`) without immediate errors, with each subsequent access also returning a `NoneWrapper`.
+
+The `NoneWrapper` object is designed to behave like `None` in common scenarios, but it is **not** the built-in `None` object.
+
+*   It is equal to `None` when using the equality operator `==`: `locales['en'].missing_key == None` will return `True`.
+*   It behaves as a "falsy" value in a boolean context: `if not locales['en'].missing_key:` will evaluate to `True`.
+
+**Important Note: Avoid `is None` in Non-Strict Mode**
+
+Because the library returns a `NoneWrapper` object (not the actual `None`), using the `is` operator to check for the absence of a key will **not** work as expected.
+
+```python
+# WARNING: INCORRECT WAY TO CHECK FOR ABSENCE IN NON-STRICT MODE
+value = locales['en'].potentially_missing_key
+
+# This check will be False if value is NoneWrapper, breaking your logic
+if value is None:
+    print("Key not found (this line will NOT be printed for NoneWrapper)")
+```
+
+**Correct Ways to Check for Absence in Non-Strict Mode:**
+
+Please use the equality operator `==` or the boolean "falsiness" check:
+
+```python
+# CORRECT WAYS TO CHECK FOR ABSENCE IN NON-STRICT MODE
+value = locales['en'].potentially_missing_key
+
+# Using equality comparison (recommended for explicit checks)
+if value == None:
+    print("Key not found")
+
+# Using boolean falsiness check (suitable if you want to treat absence as an empty value)
+if not value:
+    print("Key not found")
+
+# Alternatively, check that the value is NOT an instance of NoneWrapper (less common)
+if not isinstance(value, NoneWrapper):
+     # You have a string, number, list, dict (non-plural), or actual None (very rare)
+     print("Received a real value or structure")
+else:
+     print("Key not found, it's a NoneWrapper")
+
+```
+
+Here's the example demonstrating `NoneWrapper` return and logging:
 
 ```python
 # Using the non-strict data instance
 ru_translator = data_non_strict['ru'] # Default is 'en'
+en_translator = data_non_strict['en']
 
 # The path 'this.key.does.not.exist' does not exist in either en.yaml or ru.yml
 value = ru_translator.this.key.does.not.exist
-print(value) # Output: None
-# A warning will also appear in the logs:
-# WARNING:src.doti18n.locale_translator:Locale 'ru': key/index path 'this.key.does.not.exist' not found in translations...
+# Using print(value) will show the NoneWrapper representation, not just "None"
+print(f"Returned value: {value}") # Example output: Returned value: NoneWrapper('ru': this.key.does.not.exist)
+
+# When accessing, a warning will also appear in the logs from LocaleTranslator
+# WARNING:src.doti18n.locale_translator:Locale 'ru': key/index path 'this' not found in translations...
+# (Subsequent accesses like .key, .does, etc., will cause further warnings from NoneWrapper)
+
 
 # Accessing an out-of-bounds index in a list
 value = en_translator.pages[10] # List 'pages' only has 2 items (indices 0 and 1)
-print(value) # Output: None
-# A warning will also appear in the logs:
-# WARNING:src.doti18n.locale_translator:Locale 'en': Index 10 out of bounds for list at path 'pages'...
+print(f"Returned value: {value}") # Example output: Returned value: NoneWrapper('en': pages.10)
+
+# A warning will also appear in the logs from LocaleTranslator
+# WARNING:src.doti18n.locale_translator:Locale 'en': Index out of bounds or path invalid for path 'pages.10'...
 ```
 **Important:** To see these warnings, ensure your application has configured logging. A basic setup is `logging.basicConfig(level=logging.INFO)`.
 
@@ -289,42 +340,42 @@ try:
     _ = ru_translator_strict.this.key.does.not.exist
 except AttributeError as e:
     print(f"Strict mode error: {e}")
-    # Output: Strict mode error: Locale 'ru': Strict mode error: Key/index path 'this.key.does.not.exist' not found in translations...
+    # Example Output: Strict mode error: Locale 'ru': Strict mode error: Key/index path 'this.key.does.not.exist' not found in translations...
 
 # Accessing an out-of-bounds index raises IndexError
 try:
     _ = ru_translator_strict.pages[10] # List 'pages' in ru has only 2 items (indices 0 and 1)
 except IndexError as e:
     print(f"Strict mode error: {e}")
-    # Output: Strict mode error: Locale 'ru': Strict mode error: Index out of bounds for list at path 'pages'...
+    # Example Output: Strict mode error: Locale 'ru': Strict mode error: Index out of bounds for list at path 'pages.10'...
 
 # Attempting to use dot notation on a list wrapper raises AttributeError
 try:
     _ = ru_translator_strict.pages.some_attribute
 except AttributeError as e:
      print(f"Strict mode error: {e}")
-     # Output: Strict mode error: LocaleList object has no attribute 'some_attribute' # (Standard Python error)
+     # Example Output: Strict mode error: 'LocaleList' object has no attribute 'some_attribute' # (Standard Python error)
 
 # Attempting to use index notation on a dictionary wrapper raises TypeError
 try:
     _ = ru_translator_strict.messages[0]
 except TypeError as e:
      print(f"Strict mode error: {e}")
-     # Output: Strict mode error: 'LocaleNamespace' object is not subscriptable # (Standard Python error)
+     # Example Output: Strict mode error: 'LocaleNamespace' object is not subscriptable # (Standard Python error)
 
 # Attempting to call a non-callable wrapper (__call__ defined to raise TypeError)
 try:
     _ = ru_translator_strict.pages()
 except TypeError as e:
      print(f"Strict mode error: {e}")
-     # Output: Strict mode error: 'LocaleList' object at path 'pages' is not callable...
+     # Example Output: Strict mode error: 'LocaleList' object at path 'pages' is not callable...
 
 # Attempting to implicitly convert a non-value wrapper to string (__str__ defined to raise TypeError in strict)
 try:
     print(ru_translator_strict.pages)
 except TypeError as e:
      print(f"Strict mode error: {e}")
-     # Output: Strict mode error: 'LocaleList' object at path 'pages' cannot be converted to string...
+     # Example Output: Strict mode error: 'LocaleList' object at path 'pages' cannot be converted to string...
 
 ```
 
@@ -344,12 +395,16 @@ nested:
 en_translator = data_non_strict['en']
 
 # Accessing the null value returns None and logs a warning
-with logging.S_stream.assertLogs(level='WARNING') as log_cm: # Use appropriate method for capturing logs
-    value1 = en_translator.explicit_null_key
-    value2 = en_translator.nested.another_null
+import logging # Ensure logging is imported for basicConfig if needed
+logging.basicConfig(level=logging.WARNING) # Basic setup to see warnings
 
-print(value1) # Output: None
-print(value2) # Output: None
+# Use an appropriate method for capturing logs in tests if needed.
+# In standard runtime, warnings will go to console/configured handler.
+value1 = en_translator.explicit_null_key
+value2 = en_translator.nested.another_null
+
+print(f"Value 1: {value1}") # Output: Value 1: None
+print(f"Value 2: {value2}") # Output: Value 2: None
 # A warning will also appear in the logs, e.g.:
 # WARNING:src.doti18n.locale_translator:Locale 'en': key/index path 'explicit_null_key' has an explicit None value.
 # WARNING:src.doti18n.locale_translator:Locale 'en': key/index path 'nested.another_null' has an explicit None value.

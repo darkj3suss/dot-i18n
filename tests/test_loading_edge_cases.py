@@ -22,7 +22,7 @@ class TestLoadingEdgeCases(BaseLocaleTest):
             locales = LocaleData(TEST_LOCALES_DIR, 'en')
         self.assertIn(f"Localization directory '{TEST_LOCALES_DIR}' not found.", log_cm.output[0])
         self.assertEqual(locales.loaded_locales, [])
-        self.assertIsNone(locales['en'].some_key)
+        self.assertEqual(locales['en'].some_key, None)
         locales = None
 
 

@@ -46,7 +46,7 @@ class TestLoading(BaseLocaleTest):
         self.assertIn(f"No localization files found or successfully loaded from '{TEST_LOCALES_DIR}'.", log_output)
         self.assertEqual(locales.loaded_locales, [])
         self.assertIsInstance(locales['en'], locales['en'].__class__)
-        self.assertIsNone(locales['en'].some_key)
+        self.assertEqual(locales['en'].some_key, None)
         locales = None  # Explicitly dereference   
 
     def test_invalid_yaml_file(self):
@@ -82,8 +82,8 @@ class TestLoading(BaseLocaleTest):
         self.assertNotIn('en', locales.loaded_locales)
         self.assertNotIn('ru', locales.loaded_locales)
 
-        self.assertIsNone(locales['en'].some_key)
-        self.assertIsNone(locales['ru'].some_key)
+        self.assertEqual(locales['en'].some_key, None)
+        self.assertEqual(locales['ru'].some_key, None)
         locales = None  # Explicitly dereference
 
     def test_default_locale_file_missing(self):
@@ -100,7 +100,7 @@ class TestLoading(BaseLocaleTest):
         self.assertIn("Default locale file for 'en.yaml/.yml' not found or root is not a dictionary", log_output)
         self.assertIn('ru', locales.loaded_locales)
 
-        self.assertIsNone(locales['en'].some_key)
+        self.assertEqual(locales['en'].some_key, None)
         self.assertEqual(locales['ru'].key_ru, 'value_ru')
         locales = None  # Explicitly dereference
 
@@ -120,7 +120,7 @@ class TestLoading(BaseLocaleTest):
         self.assertNotIn('en', locales.loaded_locales)
         self.assertIn('ru', locales.loaded_locales)
 
-        self.assertIsNone(locales['en'].some_key)
+        self.assertEqual(locales['en'].some_key, None)
         self.assertEqual(locales['ru'].key_ru, 'value_ru')
         locales = None  # Explicitly dereference
 

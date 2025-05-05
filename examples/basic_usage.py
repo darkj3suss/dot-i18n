@@ -1,3 +1,5 @@
+# examples/basic_usage.py
+
 import os
 import logging
 from src.doti18n import LocaleData
