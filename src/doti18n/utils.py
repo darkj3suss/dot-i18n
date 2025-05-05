@@ -1,9 +1,15 @@
+# doti18n/utils.py
+
 from typing import (
     Any,
     List,
     Optional,
-    Dict
+    Dict,
+    Union
 )
+
+
+_NOT_FOUND = object()
 
 
 def _is_plural_dict(data: Any) -> bool:
@@ -28,30 +34,68 @@ def _is_plural_dict(data: Any) -> bool:
     return any(key in data and isinstance(data[key], str) for key in plural_keys)
 
 
-def _get_value_by_path_single(path: List[str], data: Optional[Dict[str, Any]]) -> Any:
+def _get_value_by_path_single(path: List[Union[str, int]], data: Optional[Dict[str, Any]]) -> Any:
     """
     Helper method to retrieve a value by path only from a given dictionary.
 
-    Used internally to check if a full path exists within a specific
-    localization dictionary (current or default).
+    Supports paths containing both dictionary keys (str) and list indices (int).
+    Returns the value found (including None if it's an explicit value),
+    or returns a special 'not found' indicator if the path segment does not exist
+    or traversal fails. A simple `None` return cannot distinguish these.
+    Let's use a sentinel value or raise a specific internal exception.
+    Using a sentinel is cleaner as this is an internal helper.
 
-    :param path: The list of keys representing the path.
-    :type path: List[str]
-    :param data: The dictionary to search within. Can be None.
-    :type data: Optional[Dict[str, Any]]
-    :return: The value found at the path, or None if the path does not exist
-             or data is not a dictionary.
-    :rtype: Any
     """
 
     if data is None or not isinstance(data, dict):
-        return None
+        # If data is not even a dict, path cannot start from here unless empty path
+        return _NOT_FOUND if path else data  # Return data itself if path is empty
 
     value = data
-    for key in path:
-        if isinstance(value, dict) and key in value:
-            value = value.get(key)
-        else:
-            return None  # Path does not exist in this dictionary
-    return value
+    for i, key_or_index in enumerate(path):
+        if isinstance(value, dict):
+            if not isinstance(key_or_index, str):
+                return _NOT_FOUND  # Expected string key for dict
+            if key_or_index not in value:
+                return _NOT_FOUND  # Key not found in dict
 
+            next_value = value.get(key_or_index)
+            if i < len(path) - 1:
+                if not isinstance(next_value, (dict, list)):
+                    return _NOT_FOUND
+                value = next_value
+            else:
+                return next_value
+
+        elif isinstance(value, list):
+            if not isinstance(key_or_index, int):
+                return _NOT_FOUND
+            if not (0 <= key_or_index < len(value)):
+                return _NOT_FOUND
+
+            next_value = value[key_or_index]
+            if i < len(path) - 1:
+                if not isinstance(next_value, (dict, list)):
+                    return _NOT_FOUND
+                value = next_value
+            else:
+                # This is the last element, return the actual value (could be None)
+                return next_value
+
+        else:
+            # If current value is not dict or list, but path continues
+            return _NOT_FOUND  # Cannot traverse through non-collection type
+
+    # If the loop completes without returning, it means the path was empty,
+    # and we return the initial data. This case is handled before the loop now.
+    # If path was not empty and loop completed, it means the last step returned.
+    # This line should technically not be reached if path is not empty.
+    # Return the initial data if path was empty
+    return data
+
+
+__all__ = [
+    "_get_value_by_path_single",
+    "_is_plural_dict",
+    "_NOT_FOUND"
+]

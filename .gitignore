@@ -1,7 +1,9 @@
 .venv
 .idea
+.vscode
 __pycache__
 *.pyc
 *.*~
 dist
 *.egg-info
+test_locales

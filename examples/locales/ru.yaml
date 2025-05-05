@@ -1,0 +1,26 @@
+# ru.yml
+messages:
+  greeting: Привет!
+  status:
+    online: Вы онлайн.
+    # Key 'offline' is missing, will fall back to en.yaml
+  # Key 'welcome_user' is missing, will fall back to en.yaml
+
+items:
+  apple:
+    one: "У вас {count} яблоко."
+    few: "У вас {count} яблока."
+    many: "У вас {count} яблок."
+    other: "У вас {count} яблока." # Example for plural forms
+    # 'zero' and 'two' forms can be added if needed
+
+pages: # List structure exists, but maybe some keys/items are missing or different
+  - title: Главная
+    path: /
+    # 'content' key is missing, will fall back to en.yaml
+  - title: О нас
+    # Entire second item might have missing keys or be missing itself (fallback applies per-path-segment)
+
+# 'sections' root key is missing, will fall back to en.yaml
+# sections:
+  # ...

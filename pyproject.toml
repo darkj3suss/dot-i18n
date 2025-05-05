@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dot-i18n"
-version = "0.1.0"
+version = "0.2.0"
 description = "Python library for loading YAML localizations with dot access and pluralization."
 readme = "README.md"
 requires-python = ">=3.8"

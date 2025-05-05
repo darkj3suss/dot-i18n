@@ -1,3 +1,5 @@
+# doti18n/locale_data.py
+
 import os
 from typing import (
     Dict,
@@ -17,9 +19,11 @@ logger = logging.getLogger(__name__)
 class LocaleData:
     """
     Manages the loading of all localization files and provides access to LocaleTranslator instances.
+
+    Supports a 'strict' mode which is passed to created LocaleTranslator instances.
     """
 
-    def __init__(self, locales_dir: str, default_locale: str = 'en'):
+    def __init__(self, locales_dir: str, default_locale: str = 'en', strict: bool = False):
         """
         Initializes the LocaleData manager.
 
@@ -29,11 +33,15 @@ class LocaleData:
         :type locales_dir: str
         :param default_locale: The code of the default locale. Defaults to 'en'.
         :type default_locale: str
+        :param strict: If `True`, all created LocaleTranslator instances will be in strict mode.
+                       If `False` (default), they will be in non-strict mode.
+        :type strict: bool
         """
 
         self.logger = logger
         self.locales_dir = locales_dir
         self.default_locale = default_locale.lower()
+        self._strict = strict
         # Dictionary to store raw loaded data: normalized_locale_code -> data (or None)
         self._raw_translations: Dict[str, Optional[Dict[str, Any]]] = {}
         # Cache for LocaleTranslator instances: normalized_locale_code -> LocaleTranslator
@@ -88,9 +96,10 @@ class LocaleData:
         Returns the LocaleTranslator object for the specified locale code.
 
         Uses a cache to avoid creating multiple translator instances for the
-        same locale. Normalizes the locale code to lowercase.
+        same locale. Normalizes the locale code to lowercase. The 'strict'
+        setting of this LocaleData instance is passed to the translator.
 
-        :param locale_code: The code of the desired locale (e.g., 'en', 'RU').
+        :param locale_code: The code of the desired locale (e.g., 'en', 'FR').
         :type locale_code: str
         :return: The LocaleTranslator instance for the requested locale.
         :rtype: LocaleTranslator
@@ -107,7 +116,8 @@ class LocaleData:
             normalized_locale_code,
             current_locale_data,
             default_locale_data,
-            self.default_locale
+            self.default_locale,
+            strict=self._strict
         )
 
         self._locale_translators_cache[normalized_locale_code] = translator
@@ -116,7 +126,6 @@ class LocaleData:
     def __contains__(self, locale_code: str) -> bool:
         """
         Checks if a locale with the given code was successfully loaded with a dictionary root.
-
         Normalizes the locale code to lowercase for the check.
 
         :param locale_code: The locale code to check (e.g., 'en', 'fr').
@@ -145,7 +154,8 @@ class LocaleData:
         Returns the LocaleTranslator for the specified locale, or a default value
         if the locale was not successfully loaded (e.g., file not found or root not a dictionary).
 
-        Normalizes the locale code.
+        Normalizes the locale code. The 'strict' setting of this LocaleData instance
+        is used if a translator is created.
 
         :param locale_code: The code of the desired locale.
         :type locale_code: str
@@ -157,7 +167,6 @@ class LocaleData:
         """
 
         normalized_locale_code = locale_code.lower()
-
         if normalized_locale_code in self:
             return self[normalized_locale_code]
         else:

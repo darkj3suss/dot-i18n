@@ -1,0 +1,42 @@
+# en.yaml
+messages:
+  greeting: Hello!
+  status:
+    online: You are online.
+    offline: You are offline.
+  welcome_user: "Welcome, {username}!" # Example string with a placeholder
+
+items:
+  apple:
+    one: "You have {count} apple."
+    other: "You have {count} apples." # Example for plural forms
+
+settings:
+  language: English
+  theme: dark
+
+pages: # Example using a list of dictionaries
+  - title: Home
+    path: /
+    content: Welcome to the homepage!
+  - title: About Us
+    path: /about
+    content: Learn more about our company.
+
+sections: # Example with nested lists and dictionaries
+  - id: 1
+    name: Introduction
+    items:
+      - text: First item in section 1
+        value: 10
+      - text: Second item in section 1
+        value: 20
+  - id: 2
+    name: Conclusion
+    items:
+      - text: Only item in section 2
+        value: 30
+
+explicit_null_key: null # For null handling example
+nested:
+  another_null: null # For null handling example

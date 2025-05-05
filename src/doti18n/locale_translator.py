@@ -1,26 +1,39 @@
+# doti18n/locale_translator.py
+
 from typing import (
-    List,
-    Any,
-    Optional,
     Dict,
-    Tuple
+    Optional,
+    Any,
+    List,
+    Tuple,
+    Union,
+    Callable
 )
+from .wrapped import (
+    LocaleNamespace,
+    LocaleList,
+    PluralWrapper
+)
+from .utils import *
 import logging
-from .locale_namespace import LocaleNamespace
-from .utils import _is_plural_dict
+
 
 logger = logging.getLogger(__name__)
 try:
     from babel import Locale
 except ImportError:
-    logger.warning("Babel is not installed. Library working can be unstable")
+    logger.warning("Babel is not installed. Library working can be unstable (especially plural forms).")
 
     class Locale:
         """Dummy Locale class"""
         def __init__(self, *args, **kwargs):
+            # Note: The dummy plural_form implementation is very basic.
+            # A more robust dummy might be needed depending on usage,
+            # but 'other' is the most common fallback.
             pass
 
         def plural_form(self, *args, **kwargs):
+            # Always return 'other' as a fallback without Babel
             return "other"
 
 
@@ -28,7 +41,8 @@ class LocaleTranslator:
     """
     Represents a set of localizations for a specific locale and provides methods
     to access them and handle plural forms.
-    Can be used independently, without `LocaleData`.
+
+    Supports a 'strict' mode where missing keys raise exceptions.
     """
 
     def __init__(
@@ -36,7 +50,8 @@ class LocaleTranslator:
             locale_code: str,
             current_locale_data: Optional[Dict[str, Any]],
             default_locale_data: Optional[Dict[str, Any]],
-            default_locale_code: str
+            default_locale_code: str,
+            strict: bool = False
     ):
         """
         Initializes a LocaleTranslator.
@@ -51,69 +66,42 @@ class LocaleTranslator:
         :type default_locale_data: Optional[Dict[str, Any]]
         :param default_locale_code: The code of the default locale.
         :type default_locale_code: str
+        :param strict: If True, accessing a non-existent key will raise AttributeError.
+                       If False (default), it returns None and logs a warning.
+        :type strict: bool
         """
         self.locale_code = locale_code
+        # Ensure data is treated as a dictionary, default to empty if None or not dict
         self._current_locale_data = current_locale_data if isinstance(current_locale_data, dict) else {}
         self._default_locale_data = default_locale_data if isinstance(default_locale_data, dict) else {}
         self._default_locale_code = default_locale_code
+        self._strict = strict
 
-    def _get_value_by_path(self, path: List[str]) -> Tuple[Any, Optional[str]]:
+    def _get_value_by_path(self, path: List[Union[str, int]]) -> Tuple[Any, Optional[str]]:
         """
         Retrieves the value at the given path, checking the current locale first,
         then the default locale.
 
         Returns the value found and the locale code where it was found.
-        Returns (None, None) if the path does not exist in either locale.
+        Uses _NOT_FOUND sentinel if the path does not exist in either locale.
 
-        :param path: The list of keys representing the path (e.g., ['messages', 'greeting']).
-        :type path: List[str]
+        :param path: The list of keys/indices representing as a path (e.g., ['messages', 'hi'] or ['page', 0, 'title']).
+        :type path: List[Union[str, int]] # Обновить docstring
         :return: A tuple containing the value (Any) and the locale code (Optional[str])
                  where the value was found. Returns (None, None) if not found.
         :rtype: Tuple[Any, Optional[str]]
         """
 
-        # TODO: rework
-        current_data = self._current_locale_data
-        default_data = self._default_locale_data
+        value_from_current = _get_value_by_path_single(path, self._current_locale_data)
+        if value_from_current is not _NOT_FOUND:  # Check against sentinel
+            return value_from_current, self.locale_code
 
-        current_step_data = current_data
-        default_step_data = default_data
-        found_locale_code_at_step = None
+        value_from_default = _get_value_by_path_single(path, self._default_locale_data)
+        if value_from_default is not _NOT_FOUND:  # Check against sentinel
+            return value_from_default, self._default_locale_code
 
-        for i, key in enumerate(path):
-            value_at_step = None
-
-            if isinstance(current_step_data, dict) and key in current_step_data:
-                value_at_step = current_step_data.get(key)
-                current_step_data = value_at_step
-                if found_locale_code_at_step is None or found_locale_code_at_step == self.locale_code:
-                    found_locale_code_at_step = self.locale_code
-            else:
-                current_step_data = None
-
-            if value_at_step is None:
-                if isinstance(default_step_data, dict) and key in default_step_data:
-                    value_at_step = default_step_data.get(key)
-                    default_step_data = value_at_step
-                    found_locale_code_at_step = self._default_locale_code
-                else:
-                    default_step_data = None
-
-            if value_at_step is None:
-                return None, None
-
-            if i < len(path) - 1 and not isinstance(value_at_step, dict):
-                return None, None
-
-        final_value = value_at_step
-        found_in_current_path = self._get_value_by_path_single(path, self._current_locale_data) is not None
-
-        if found_in_current_path:
-            return final_value, self.locale_code
-        elif final_value is not None:
-            return final_value, self._default_locale_code
-        else:
-            return None, None
+        # If sentinel returned from both, the path was not found
+        return _NOT_FOUND, None  # Return sentinel and None locale code
 
     def _get_plural_form_key(self, count: int, locale_code: Optional[str]) -> str:
         """
@@ -129,6 +117,8 @@ class LocaleTranslator:
                  Returns 'other' as a fallback in case of errors.
         :rtype: str
         """
+        # Use the locale code where the plural dictionary was originally found
+        # (or the translator's current locale code)
         target_locale_code = locale_code if locale_code else self.locale_code
         try:
             # Babel's Locale expects underscores for territory (e.g., en_US)
@@ -137,8 +127,8 @@ class LocaleTranslator:
             return plural_rule_func(abs(count))
         except Exception as e:
             logger.warning(
-                f"Babel failed to get plural rule function or category for count {count}"
-                f" and locale '{target_locale_code}': {e}. Falling back to 'other'.",
+                f"Babel failed to get plural rule function or category for count {abs(count)} "
+                f"and locale '{target_locale_code}': {e}. Falling back to 'other'.",
                 exc_info=True
             )
             return 'other'
@@ -153,7 +143,7 @@ class LocaleTranslator:
         """
         Retrieves the plural template string based on the count and locale rules.
         Searches first in the provided plural dictionary, then in the default locale's
-        corresponding plural dictionary.
+        corresponding plural dictionary. Returns the template string or None.
 
         :param path: The full path to the plural dictionary.
         :type path: List[str]
@@ -163,21 +153,21 @@ class LocaleTranslator:
                                     (or the first locale where it was found).
         :type current_plural_dict: Dict[str, Any]
         :param current_plural_locale_code: The locale code where `current_plural_dict` was found.
-                                           Used for getting the plural form key.
+                                         Used for getting the plural form key.
         :type current_plural_locale_code: Optional[str]
         :return: The template string for the determined plural form, or the 'other' form,
                  or None if no suitable template is found in either locale.
         :rtype: Optional[str]
         """
 
+        # TODO: func looks too complex, maybe need to rework
         form_key = self._get_plural_form_key(count, current_plural_locale_code)
         template = current_plural_dict.get(form_key)
         if template is None:
             template = current_plural_dict.get('other')
 
         if template is None:
-            default_plural_dict = self._get_value_by_path_single(path, self._default_locale_data)
-
+            default_plural_dict = _get_value_by_path_single(path, self._default_locale_data)
             if (
                     default_plural_dict is not None
                     and isinstance(default_plural_dict, dict)
@@ -189,17 +179,22 @@ class LocaleTranslator:
 
         return template if isinstance(template, str) else None
 
-    def _handle_resolved_value(self, value: Any, path: List[str], found_locale_code: Optional[str]) -> Any:
+    def _handle_resolved_value(
+            self,
+            value: Any,
+            path: List[Union[str, int]],
+            found_locale_code: Optional[str]
+    ) -> Any:
         """
-        Helper method to process the value obtained from `_get_value_by_path`.
+        Helper method to process the value obtained from _get_value_by_path.
 
-        Returns a string, a plural handler callable, a LocaleNamespace,
-        or the value itself (e.g., number, list, bool).
+        Assumes the value is NOT the _NOT_FOUND sentinel.
+        Logs a warning if an explicit None value is found.
 
-        :param value: The value retrieved by `_get_value_by_path`.
+        :param value: The value retrieved by _get_value_by_path.
         :type value: Any
         :param path: The full path used to retrieve the value.
-        :type path: List[str]
+        :type path: List[Union[str, int]] # Обновить docstring
         :param found_locale_code: The locale code where the value was found.
         :type found_locale_code: Optional[str]
         :return: The processed value or handler.
@@ -207,111 +202,165 @@ class LocaleTranslator:
         :raises ValueError: If formatting a plural string fails.
         :raises AttributeError: If a template for a plural form is not a string.
         """
+
         if isinstance(value, str):
             return value
         elif isinstance(value, dict):
             if _is_plural_dict(value):
-                def plural_handler(count: int, **kwargs) -> str:
-                    """
-                    Handler function returned for plural localization keys.
-
-                    Formats the appropriate plural template based on the count.
-
-                    :param count: The number used to determine the plural form.
-                    :type count: int
-                    :param kwargs: Additional keyword arguments to format into the template.
-                    :type kwargs: Any
-                    :return: The formatted localization string.
-                    :rtype: str
-                    :raises AttributeError: If a template cannot be found for the given count and key.
-                    :raises ValueError: If formatting the template fails (e.g., missing placeholder).
-                    """
-                    template = self._get_plural_template(
-                        path,
-                        count,
-                        value,
-                        found_locale_code
-                    )
-
-                    if template is None:
-                        full_key_path_str = '.'.join(path)
-                        form_key = self._get_plural_form_key(count, found_locale_code)
-                        raise AttributeError(
-                            f"Failed to find plural template for key '{full_key_path_str}' "
-                            f"(form '{form_key}', count {count}) in locale '{found_locale_code or self.locale_code}' "
-                            f"or default '{self._default_locale_code}'."
-                        )
-
-                    # TODO: add more values, and, maybe, rework func
-                    format_args = {'count': abs(count)}
-                    format_args.update(kwargs)
-                    try:
-                        return template.format(**format_args)
-                    except KeyError as e:
-                        full_key_path_str = '.'.join(path)
-                        form_key = self._get_plural_form_key(count, found_locale_code)
-                        raise ValueError(
-                            f"Formatting error for plural key '{full_key_path_str}' (form '{form_key}'): "
-                            f"Missing placeholder {e} in template '{template}'"
-                        )
-                    except AttributeError:
-                        full_key_path_str = '.'.join(path)
-                        form_key = self._get_plural_form_key(count, found_locale_code)
-                        raise ValueError(
-                            f"Error: Template for key '{full_key_path_str}' form '{form_key}' is not a string."
-                        )
-
-                return plural_handler
+                full_path = '.'.join(map(str, path))
+                return PluralWrapper(
+                    func=self._create_plural_handler(path, value, found_locale_code),
+                    path=full_path,
+                    strict=self._strict
+                )
             else:
-                # Return a LocaleNamespace for nested dictionaries that are not plural dicts
                 return LocaleNamespace(path, self)
+        elif isinstance(value, list):
+            return LocaleList(value, path, self)
         else:
-            # Return other data types (numbers, lists, booleans, etc.) as is.
+            # value is not str, dict, or list (e.g., int, float, bool, None)
             if value is None:
-                if found_locale_code is None:
-                    full_key_path = '.'.join(path)
-                    logger.warning(
-                        f"Locale '{self.locale_code}': key '{full_key_path}' resolved to None "
-                        f"in translations (including default '{self._default_locale_code}')."
-                    )
-                # Return None even if a warning is logged
-                return value
+                # This branch is reached when _get_value_by_path found a value (None).
+                full_key_path = '.'.join(map(str, path))
+                logger.warning(
+                    f"Locale '{found_locale_code}': key/index path '{full_key_path}' has an explicit None value."
+                )
+            # Always return the raw simple value (int, float, bool, or the explicit None)
+            return value
 
-    def _resolve_value_by_path(self, path: List[str]) -> Any:
+    def _create_plural_handler(
+            self,
+            path: List[Union[str, int]],
+            plural_dict: Dict[str, Any],
+            found_locale_code: Optional[str]
+    ) -> Callable:
+        """Helper to create the callable plural handler."""
+
+        def plural_handler(count: int, **kwargs) -> str:
+            """
+            Handler function returned for plural localization keys.
+            Formats the appropriate plural template based on the count.
+            """
+            if not isinstance(count, int):
+                raise TypeError(
+                    f"Plural handler for key '{'.'.join(map(str, path))}' "
+                    f"requires an integer count, not {type(count).__name__}"
+                )
+
+            template = self._get_plural_template(
+                path,
+                count,
+                plural_dict,
+                found_locale_code
+            )
+
+            full_key_path_str = '.'.join(map(str, path))
+            if template is None:
+                form_key = self._get_plural_form_key(count, found_locale_code)
+                raise AttributeError(
+                    f"Failed to find plural template for key '{full_key_path_str}' "
+                    f"(form '{form_key}', count {count}) in locale '{found_locale_code or self.locale_code}' "
+                    f"or default '{self._default_locale_code}'."
+                )
+
+            # TODO: add more values, and, maybe, rework func
+            format_args = {'count': abs(count)}
+            format_args.update(kwargs)
+            try:
+                return template.format(**format_args)
+            except KeyError as e:
+                form_key = self._get_plural_form_key(count, found_locale_code)
+                raise ValueError(
+                    f"Formatting error for plural key '{full_key_path_str}' (form '{form_key}'): "
+                    f"Missing placeholder {e} in template '{template}'"
+                )
+            except AttributeError:
+                form_key = self._get_plural_form_key(count, found_locale_code)
+                raise ValueError(
+                    f"Error: Template for key '{full_key_path_str}' form '{form_key}' is not a string."
+                )
+
+        return plural_handler
+
+    def _resolve_value_by_path(self, path: List[Union[str, int]]) -> Any:
         """
         Internal method to retrieve and process a value given its full path.
 
-        Used by both LocaleNamespace and the Translator itself.
+        Used by LocaleNamespace, LocaleList, and the Translator itself. Handles the
+        strict/non-strict behavior for missing keys/indices.
 
-        :param path: The list of keys representing the full path.
-        :type path: List[str]
+        :param path: The list of keys/indices representing the full path.
+        :type path: List[Union[str, int]] # Обновить docstring
         :return: The resolved value or handler.
         :rtype: Any
+        :raises AttributeError: If the key path is not found (for str keys) and self._strict is True.
+        :raises IndexError: If an index path is out of bounds (for int indices) and self._strict is True.
         """
 
-        value, found_locale_code = self._get_value_by_path(path)
-        if value is None and found_locale_code is None:
-            full_key_path = '.'.join(path)
-            logger.warning(
-                f"Locale '{self.locale_code}': key '{full_key_path}' not found "
-                f"in translations (including default '{self._default_locale_code}')."
-            )
+        # FIXME: bug with pycharm debugger
+        # I noticed that in the debugger pycharm somthing tries to get the `shape` key.
+        # If you have any ideas how to fix this instead of such a crutch - I'm waiting for your pull-requests.
+        # Keep the crutch as it was in the original code, though its placement might need review.
+        if path and path[0] == "shape":
+            logger.debug("Intercepted 'shape' access.")
             return None
 
+        value, found_locale_code = self._get_value_by_path(path)  # This now returns _NOT_FOUND if not found
+
+        # Check if the path was *not* found at all using the sentinel
+        if value is _NOT_FOUND:
+            full_key_path = '.'.join(map(str, path))
+            if self._strict:
+                # IndexError for missing index path
+                if path and isinstance(path[-1], int):
+                    raise IndexError(
+                        f"Locale '{self.locale_code}': Strict mode error: Index out of bounds or path invalid "
+                        f"for path '{full_key_path}' "
+                        f"(looked in current '{self.locale_code}' and default '{self._default_locale_code}')."
+                    )
+                else:
+                    # AttributeError for missing key path
+                    raise AttributeError(
+                        f"Locale '{self.locale_code}': Strict mode error: Key/index path '{full_key_path}' not found "
+                        f"in translations (including default '{self._default_locale_code}')."
+                    )
+            else:
+                # Log warning for path not found
+                logger.warning(
+                    f"Locale '{self.locale_code}': key/index path '{full_key_path}' not found "
+                    f"in translations (including default '{self._default_locale_code}'). None will be returned."
+                )
+                return None  # Explicitly return None when not found
+
+        # If value is *not* the sentinel, it means _get_value_by_path found *something*
         return self._handle_resolved_value(value, path, found_locale_code)
 
     def __getattr__(self, name: str) -> Any:
         """
         Handles attribute access for the top level (e.g., `data['en'].messages`).
 
-        Delegates the resolution to `_resolve_value_by_path`.
+        Delegates the resolution to `_resolve_value_by_path` unless the attribute
+        exists in the object's attributes.
 
         :param name: The attribute name (the first key in the path).
         :type name: str
         :return: The resolved value, which could be a string, LocaleNamespace,
-                 plural handler, or None.
+                 LocaleList, plural handler, or None.
         :rtype: Any
         """
+        # Note: This check `if name in dir(self):` can sometimes interfere
+        # with introspection or might not be strictly necessary depending
+        # on how _resolve_value_by_path is structured. The current implementation
+        # of _resolve_value_by_path doesn't check `self`'s own attributes;
+        # it goes straight to the data. Let's keep it for now as it was
+        # in the original code, assuming it handles actual LocaleTranslator
+        # attributes correctly.
+        # However, the shape crutch in _resolve_value_by_path implies __getattr__
+        # *does* lead to _resolve_value_by_path for 'shape'. This area might
+        # need more robust handling if other attribute names cause issues.
+        if name in dir(self):
+            # This branch will likely return a method or property of LocaleTranslator itself
+            return object.__getattribute__(self, name)
 
         return self._resolve_value_by_path([name])
 
@@ -330,7 +379,7 @@ class LocaleTranslator:
         )
 
     def __str__(self) -> str:
-        return f"<LocaleTranslator for '{self.locale_code}'>"
+        return f"<LocaleTranslator for '{self.locale_code}' (strict={self._strict})>"
 
     def __repr__(self) -> str:
-        return f"<LocaleTranslator object for '{self.locale_code}'>"
+        return self.__str__()

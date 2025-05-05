@@ -1,41 +1,46 @@
-# doti18n [![PyPI version](https://badge.fury.io/py/doti18n.svg)](https://pypi.org/project/dot-i18n/) [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/darkj3suss/dot-i18n/blob/main/LICENSE)
+# doti18n [![PyPI version](https://badge.fury.io/py/dot-i18n.svg)](https://pypi.org/project/dot-i18n/) [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/darkj3suss/dot-i18n/blob/main/LICENSE)
 
-Simple and intuitive Python library for loading localizations from YAML files and accessing them easily using dot notation, with powerful support for plural forms.
+Simple and intuitive Python library for loading localizations from YAML files and accessing them easily using dot notation, with powerful support for plural forms and nested data structures.
 
 ## Description
 
-doti18n provides a convenient way to manage your application's localization strings. By loading data from standard YAML files, the library allows you to access nested translations using a simple dot syntax (`messages.status.online`), similar to accessing object attributes or dictionary keys in some other languages/frameworks.
+doti18n provides a convenient way to manage your application's localization strings. By loading data from standard YAML files, the library allows you to access nested translations using a simple **dot syntax (`messages.status.online`) for dictionary keys** and **index syntax (`items[0]`) for list elements**. You can combine these for intuitive navigation through complex nested structures (`pages[0].title`).
 
-Special attention is given to pluralization support using the [Babel](https://babel.pypa.io/en/stable/) library, which is critical for correct localization across different languages. An automatic fallback mechanism to the default locale's value is also implemented if a key is missing in the requested locale.
+Special attention is given to pluralization support using the [Babel](https://pypi.org/project/babel/) library, which is critical for correct localization across different languages. An automatic fallback mechanism to the default locale's value is also implemented if a key or path is missing in the requested locale.
 
-The library is designed for ease of use and performance (data is loaded once during initialization).
+The library offers both a forgiving non-strict mode (returning `None` and logging warnings) and a strict mode (raising exceptions) for handling missing paths.
+
+It's designed for ease of use and performance (data is loaded once during initialization and translator objects are cached).
 
 ## Features
 
 *   Loading localization data from YAML files.
-*   Intuitive access to nested keys using dot notation (`data.section.key`).
+*   Intuitive access to nested data structures (dictionaries and lists) using **dot notation (`.`) for dictionary keys and index notation (`[]`) for list elements**.
+*   Support for **combined access paths** (`data.list[0].nested_key`).
+*   **Strict mode** (`strict=True`) to raise exceptions (`AttributeError`, `IndexError`, `TypeError`) on missing paths or incorrect usage.
+*   **Non-strict mode** (default) to return `None` and log a warning on missing paths.
 *   Pluralization support for count-dependent strings (requires `Babel`).
-*   Automatic fallback to the default locale if a key is missing in the current locale.
-*   Returns `None` and logs a warning if a key is missing in both the current and default locales.
+*   Automatic fallback to the default locale if a key/path is missing in the current locale.
 *   Caching of loaded data and translator objects for efficient access.
+*   Handles explicit `null` values in YAML, distinguishing them from missing paths.
 
 ## Installation
 
-doti18n is available on [PyPI](https://pypi.org/project/doti18n/).
+doti18n is available on [PyPI](https://pypi.org/project/dot-i18n/).
 
 Install the basic version (without pluralization support):
 
 ```bash
-pip install doti18n
+pip install dot-i18n
 ```
 
 For pluralization support (recommended), install with the optional `pluralization` dependency:
 
 ```bash
-pip install doti18n[pluralization]
+pip install dot-i18n[pluralization]
 ```
 
-**Note:** Pluralization support is implemented using the [Babel](https://babel.pypa.io/) library. If you install doti18n without the `[pluralization]` optional dependency, pluralization functionality will be limited or unavailable, and the library will log a warning about the missing Babel dependency.
+**Note:** Pluralization support is implemented using the [Babel](https://pypi.org/project/babel/) library. If you install dot-i18n without the `[pluralization]` optional dependency, pluralization functionality will be limited or unavailable, and the library will log a warning about the missing Babel dependency.
 
 ## Usage
 
@@ -51,9 +56,10 @@ locales/
 └── ru.yml
 ```
 
-Example `en.yaml` content:
+Example `en.yaml` content (now including lists):
 
 ```yaml
+# en.yaml
 messages:
   greeting: Hello!
   status:
@@ -69,11 +75,34 @@ items:
 settings:
   language: English
   theme: dark
+
+pages: # Example using a list of dictionaries
+  - title: Home
+    path: /
+    content: Welcome to the homepage!
+  - title: About Us
+    path: /about
+    content: Learn more about our company.
+
+sections: # Example with nested lists and dictionaries
+  - id: 1
+    name: Introduction
+    items:
+      - text: First item in section 1
+        value: 10
+      - text: Second item in section 1
+        value: 20
+  - id: 2
+    name: Conclusion
+    items:
+      - text: Only item in section 2
+        value: 30
 ```
 
 Example `ru.yml` content:
 
 ```yaml
+# ru.yml
 messages:
   greeting: Привет!
   status:
@@ -88,70 +117,109 @@ items:
     many: "У вас {count} яблок."
     other: "У вас {count} яблока." # Example for plural forms
     # 'zero' and 'two' forms can be added if needed
+
+pages: # List structure exists, but maybe some keys/items are missing or different
+  - title: Главная
+    path: /
+    # 'content' key is missing, will fall back to en.yaml
+  - title: О нас
+    # Entire second item might have missing keys or be missing itself (fallback applies per-path-segment)
+
+sections: # This entire section is missing in ru.yml, will fall back to en.yaml
+  # ...
 ```
 
 ### 2. Initialize `LocaleData`
 
-Create an instance of the `LocaleData` class, specifying the path to your localization files directory and the default locale code.
+Create an instance of the `LocaleData` class, specifying the path to your localization files directory and the default locale code. You can also enable `strict` mode here.
 
 ```python
 from doti18n import LocaleData
-import os # For example
+import os
 
-# Assuming your localization files are in a 'locales' subdirectory
-locales_dir = os.path.join(os.path.dirname(__file__), 'locales_example') # Use your actual path
+# Assuming your localization files are in a 'locales' subdirectory relative to the script
+locales_dir = os.path.join(os.path.dirname(__file__), 'locales') # Use your actual path
 
-data = LocaleData(locales_dir, default_locale='en')
+# Initialize in non-strict mode (default)
+data_non_strict = LocaleData(locales_dir, default_locale='en', strict=False)
+
+# Initialize in strict mode
+data_strict = LocaleData(locales_dir, default_locale='en', strict=True)
 ```
 
-### 3. Accessing Translations (Dot Notation)
+### 3. Accessing Translations (Dot and Index Notation)
 
-You can retrieve a translator object for a specific locale by accessing the `LocaleData` instance like a dictionary. Then, use dot notation to access nested keys.
+Access translator objects using `data['locale_code']`. Then, use dot notation for dictionary keys and index notation for list elements.
 
 ```python
-# Get the translator for the English locale
-# You also can use some like data["en"].messages.greeting
-en_translator = data["en"]
+# Using the non-strict data instance
+en_translator = data_non_strict["en"]
+ru_translator = data_non_strict["ru"]
 
-
-# Access simple strings
+# Access simple strings via dot notation (dictionaries)
 print(en_translator.messages.greeting)           # Output: Hello!
+print(ru_translator.messages.greeting)           # Output: Привет!
+
 print(en_translator.messages.status.online)      # Output: You are online.
 
-# Access a translation in Russian
-ru_translator = data["ru"]
-print(ru_translator.messages.greeting)           # Output: Привет!
-print(ru_translator.messages.status.online)      # Output: Вы онлайн.
+# Access elements in a list via index notation
+print(en_translator.pages[0].title)              # Output: Home
+print(en_translator.pages[1].content)            # Output: Learn more about our company.
 
-# Handling placeholders in strings (use the .format() method)
-# print(en_translator.messages.welcome_user.format(username="Alice")) # Desired: Welcome, Alice!
-# For now, you can get the string and format it separately:
-welcome_template = en_translator.messages.welcome_user
-print(welcome_template.format(username="Alice")) # Output: Welcome, Alice!
+# Access nested lists and dictionaries via combined notation
+print(en_translator.sections[0].items[0].text)   # Output: First item in section 1
+print(en_translator.sections[1].items[0].value)  # Output: 30
+
+# Handling placeholders in simple strings
+welcome_template = en_translator.messages.welcome_user # Get the string template
+print(welcome_template.format(username="Alice")) # Use standard string formatting
+
+# Accessing list/dict wrappers themselves
+# Accessing data.pages returns a LocaleList wrapper object
+pages_list = en_translator.pages
+print(isinstance(pages_list, list)) # Output: False
+# print(pages_list) # Prints a representation like <LocaleList object at path 'pages'>
+# Accessing data.pages[0] returns a LocaleNamespace wrapper object
+page_item = en_translator.pages[0]
+# print(page_item) # Prints a representation like <LocaleNamespace object at path 'pages.0'>
+print(isinstance(page_item, dict)) # Output: False
+
+# Note: You cannot call LocaleNamespace or LocaleList objects directly like functions
+# page_item() # Raises TypeError
+# pages_list() # Raises TypeError
+
+# You also cannot implicitly convert LocaleList or PluralHandlerWrapper to string
+# print("List:", pages_list) # In strict mode, this will raise TypeError. In non-strict, prints the repr.
+# It's best to access specific string values within them: print(pages_list[0].title)
 ```
 
 ### 4. Working with Pluralization
 
-If a key's value is a dictionary with plural form keys (`one`, `few`, `many`, `other`, etc.), accessing this key via dot notation will return a **callable object**. Call this object, passing the number (`count`) and, optionally, other arguments for string formatting.
+If a key's value is a dictionary with plural form keys (`one`, `few`, `many`, `other`, etc.), accessing this key via dot notation will return a **callable object (`PluralHandlerWrapper`)**. Call this object, passing the number (`count`) as the first argument. You can also pass additional keyword arguments for string formatting if your template strings include corresponding placeholders (e.g., `{item_name}`).
 
-**Requires Babel (`pip install doti18n[pluralization]`)**
+**Requires Babel (`pip install dot-i18n[pluralization]`)**
 
 ```python
-# Get the translator for the English locale
-en_translator = data['en']
+# Using the non-strict data instance
+en_translator = data_non_strict['en']
+ru_translator = data_non_strict['ru']
 
-# The 'apple' key returns a callable object for plural forms
+# The 'apple' key returns a callable PluralHandlerWrapper object
 apple_plural_en = en_translator.items.apple
 
 # Call it, passing the count
 print(apple_plural_en(1)) # Output: You have 1 apple.
 print(apple_plural_en(5)) # Output: You have 5 apples.
+print(apple_plural_en(0)) # Output: You have 0 apples.
 
-# Call it with other formatting arguments
-print(apple_plural_en(1, count=1)) # Pass count explicitly if needed for formatting, abs(count) is passed by default
+# Pass additional formatting arguments
+# If your template is "You have {count} {item_name}."
+# You can call:
+# print(apple_plural_en(1, item_name="red apple")) # Output: You have 1 red apple.
+# print(apple_plural_en(5, item_name="red apple")) # Output: You have 5 red apples.
+# The absolute value of 'count' passed to the handler is available as `{count}` in the template format.
 
 # Get the translator for the Russian locale
-ru_translator = data['ru']
 apple_plural_ru = ru_translator.items.apple
 
 print(apple_plural_ru(1))   # Output: У вас 1 яблоко.
@@ -159,41 +227,134 @@ print(apple_plural_ru(3))   # Output: У вас 3 яблока.
 print(apple_plural_ru(5))   # Output: У вас 5 яблок.
 print(apple_plural_ru(21))  # Output: У вас 21 яблоко.
 print(apple_plural_ru(100)) # Output: У вас 100 яблок.
-
-# Passing additional formatting arguments
-# For example, if the template is "{count} {item_name}"
-# print(apple_plural_ru(3, item_name="красненьких")) # Desired Output: "У вас 3 красненьких яблока"
-# Currently, only 'count' is available by default for formatting
 ```
-*Note: Currently, only `count` (the absolute value of the number passed) is available for formatting within plural form strings. If you need other variables, you would need to retrieve the template string and format it separately.*
 
 ### 5. Fallback to Default Locale
 
-If a key is missing in the requested locale, the library will attempt to find it in the default locale specified during `LocaleData` initialization.
+If a key or path segment is missing in the requested locale's data, the library will attempt to find it in the default locale specified during `LocaleData` initialization. This applies recursively.
 
 ```python
+# Using the non-strict data instance
+ru_translator = data_non_strict['ru'] # Default locale is 'en'
+
 # ru.yml does not contain the key messages.status.offline
-# Attempting to get it in Russian:
-ru_translator = data['ru']
 print(ru_translator.messages.status.offline) # Output: You are offline. (value from en.yaml)
 
 # ru.yml does not contain the key messages.welcome_user
 print(ru_translator.messages.welcome_user) # Output: Welcome, {username}! (value from en.yaml)
+
+# ru.yml does not contain the 'content' key in the first 'pages' item
+print(ru_translator.pages[0].content) # Output: Welcome to the homepage! (value from en.yaml)
+
+# ru.yml is missing the entire 'sections' root key
+print(ru_translator.sections[0].items[0].text) # Output: First item in section 1 (value from en.yaml)
 ```
 
-### 6. Handling Missing Keys
+### 6. Handling Missing Paths (Non-Strict vs. Strict)
 
-If a key is missing in both the current locale and the default locale, accessing it will return `None`, and the library will log a warning using the standard `logging` module.
+The behavior when a full path is not found in either the current locale or the default locale depends on the `strict` setting.
+
+**Default Behavior (Non-Strict: `strict=False`)**
+
+Accessing a missing key/path returns `None` and logs a warning.
 
 ```python
-# The key 'non_existent_key' does not exist in either en.yaml or ru.yml
-ru_translator = data['ru']
+# Using the non-strict data instance
+ru_translator = data_non_strict['ru'] # Default is 'en'
+
+# The path 'this.key.does.not.exist' does not exist in either en.yaml or ru.yml
 value = ru_translator.this.key.does.not.exist
 print(value) # Output: None
 # A warning will also appear in the logs:
-# WARNING:doti18n.locale_translator:Locale 'ru': key 'this.key.does.not.exist' not found in translations...
+# WARNING:src.doti18n.locale_translator:Locale 'ru': key/index path 'this.key.does.not.exist' not found in translations...
+
+# Accessing an out-of-bounds index in a list
+value = en_translator.pages[10] # List 'pages' only has 2 items (indices 0 and 1)
+print(value) # Output: None
+# A warning will also appear in the logs:
+# WARNING:src.doti18n.locale_translator:Locale 'en': Index 10 out of bounds for list at path 'pages'...
 ```
 **Important:** To see these warnings, ensure your application has configured logging. A basic setup is `logging.basicConfig(level=logging.INFO)`.
+
+**Strict Mode (`strict=True`)**
+
+Initialize `LocaleData` with `strict=True`. Accessing a missing key/path will raise an exception.
+
+```python
+# Using the strict data instance
+ru_translator_strict = data_strict['ru'] # Default is 'en'
+
+# Accessing a missing key/path raises AttributeError
+try:
+    _ = ru_translator_strict.this.key.does.not.exist
+except AttributeError as e:
+    print(f"Strict mode error: {e}")
+    # Output: Strict mode error: Locale 'ru': Strict mode error: Key/index path 'this.key.does.not.exist' not found in translations...
+
+# Accessing an out-of-bounds index raises IndexError
+try:
+    _ = ru_translator_strict.pages[10] # List 'pages' in ru has only 2 items (indices 0 and 1)
+except IndexError as e:
+    print(f"Strict mode error: {e}")
+    # Output: Strict mode error: Locale 'ru': Strict mode error: Index out of bounds for list at path 'pages'...
+
+# Attempting to use dot notation on a list wrapper raises AttributeError
+try:
+    _ = ru_translator_strict.pages.some_attribute
+except AttributeError as e:
+     print(f"Strict mode error: {e}")
+     # Output: Strict mode error: LocaleList object has no attribute 'some_attribute' # (Standard Python error)
+
+# Attempting to use index notation on a dictionary wrapper raises TypeError
+try:
+    _ = ru_translator_strict.messages[0]
+except TypeError as e:
+     print(f"Strict mode error: {e}")
+     # Output: Strict mode error: 'LocaleNamespace' object is not subscriptable # (Standard Python error)
+
+# Attempting to call a non-callable wrapper (__call__ defined to raise TypeError)
+try:
+    _ = ru_translator_strict.pages()
+except TypeError as e:
+     print(f"Strict mode error: {e}")
+     # Output: Strict mode error: 'LocaleList' object at path 'pages' is not callable...
+
+# Attempting to implicitly convert a non-value wrapper to string (__str__ defined to raise TypeError in strict)
+try:
+    print(ru_translator_strict.pages)
+except TypeError as e:
+     print(f"Strict mode error: {e}")
+     # Output: Strict mode error: 'LocaleList' object at path 'pages' cannot be converted to string...
+
+```
+
+### 7. Handling Explicit `null` Values
+
+If a key/path exists, but its value is explicitly set to `null` in the YAML file, accessing it will return `None`. In non-strict mode, this will also log a warning to distinguish it from a "not found" path.
+
+Example `en.yaml` with null:
+```yaml
+explicit_null_key: null
+nested:
+  another_null: null
+```
+
+```python
+# Using the non-strict data instance
+en_translator = data_non_strict['en']
+
+# Accessing the null value returns None and logs a warning
+with logging.S_stream.assertLogs(level='WARNING') as log_cm: # Use appropriate method for capturing logs
+    value1 = en_translator.explicit_null_key
+    value2 = en_translator.nested.another_null
+
+print(value1) # Output: None
+print(value2) # Output: None
+# A warning will also appear in the logs, e.g.:
+# WARNING:src.doti18n.locale_translator:Locale 'en': key/index path 'explicit_null_key' has an explicit None value.
+# WARNING:src.doti18n.locale_translator:Locale 'en': key/index path 'nested.another_null' has an explicit None value.
+```
+In strict mode, accessing an explicit `null` value will simply return `None` without raising an exception (as the path *was* found).
 
 ## Optional Dependencies
 

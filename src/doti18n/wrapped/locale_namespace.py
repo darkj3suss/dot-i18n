@@ -1,18 +1,25 @@
+# doti18n/wrapped/locale_namespace.py
+
 from typing import (
     List,
-    Any
+    Any,
+    Union,
+    TYPE_CHECKING,
 )
+
+if TYPE_CHECKING:
+    import doti18n
 
 
 class LocaleNamespace:
     """
     Represents a nested namespace of localizations accessible via dot notation.
 
-    This class is used by LocaleTranslator to provide access
+    This class is used internally by LocaleTranslator to provide access
     to nested YAML structures like `messages.status.online`.
     """
 
-    def __init__(self, path: List[str], translator: 'LocaleTranslator'):
+    def __init__(self, path: List[Union[str, int]], translator: 'doti18n.LocaleTranslator'):
         """
         Initializes a LocaleNamespace.
 
@@ -30,13 +37,15 @@ class LocaleNamespace:
         Handles attribute access (e.g., `messages.greeting`).
 
         This method constructs the new path and delegates the value resolution
-        to the associated LocaleTranslator.
+        to the associated LocaleTranslator. The behavior (return None/log warning
+        or raise exception) is determined by the translator's `strict` setting.
 
         :param name: The attribute name (the next key in the path).
         :type name: str
         :return: The resolved value, which could be a string, another
-                 LocaleNamespace, a plural handler callable, or None.
+                 LocaleNamespace, a plural handler callable, or None (in non-strict mode).
         :rtype: Any
+        :raises AttributeError: If the key is not found and the translator is in strict mode.
         """
 
         new_path = self._path + [name]
@@ -53,7 +62,7 @@ class LocaleNamespace:
         :raises TypeError: If the LocaleNamespace object is called.
         """
 
-        full_key_path = '.'.join(self._path) if self._path else "root"
+        full_key_path = '.'.join(map(str, self._path)) if self._path else "root"
         raise TypeError(
             f"'{type(self).__name__}' object at path '{full_key_path}' is not callable. "
             f"It represents a localization namespace or a simple value. "
@@ -61,8 +70,12 @@ class LocaleNamespace:
         )
 
     def __str__(self) -> str:
-        path_str = '.'.join(self._path) if self._path else "root"
-        return f"<LocaleNamespace at path '{path_str}' for '{self._translator.locale_code}'>"
+        path_str = '.'.join(map(str, self._path)) if self._path else "root"
+        return f"<LocaleNamespace at path '{path_str}'>"
 
     def __repr__(self) -> str:
-        return self.__str__()
+        path_str = '.'.join(map(str, self._path)) if self._path else "root"
+        return (
+            f"<LocaleNamespace at path '{path_str}' for '{self._translator.locale_code}' "
+            f"(strict={self._translator._strict})>"
+        )
